@@ -1,4 +1,5 @@
 // vim:ts=8:expandtab
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include <yajl/yajl_gen.h>
@@ -6,6 +7,10 @@
 
 #ifdef LINUX
 #include <iwlib.h>
+    #if defined(USE_PROC_NET_DEV)
+        static long long prev_recv_bytes, prev_sent_bytes, 
+        prev_nanoseconds = -1;
+    #endif
 #else
 #ifndef __FreeBSD__
 #define IW_ESSID_MAX_SIZE 32
@@ -70,6 +75,105 @@ typedef struct {
         int noise_level_max;
         int bitrate;
 } wireless_info_t;
+
+static void print_iw_speed(const char *interface) {
+#ifdef LINUX
+#ifdef USE_PROC_NET_DEV
+    char buffer[4096], cad[256], *ni, *nf;
+    
+    // read network information
+    int fd = open("/proc/net/dev", O_RDONLY);
+    if (fd < 0) return;
+    int bytes = read(fd, buffer, sizeof(buffer)-1);
+    close(fd);
+    if (bytes < 0) return;
+    buffer[bytes] = 0;
+
+    struct timespec tp;
+    clock_gettime(CLOCK_MONOTONIC, &tp);
+    long long nanoseconds = tp.tv_sec * 1000000000LL + tp.tv_nsec;
+
+    long long recv_bytes=LLONG_MAX, sent_bytes=LLONG_MAX;
+    int networkAvailable = 0;
+
+    // search for the proper network interface
+    strcpy(cad, interface);
+    strcat(cad, ":");
+    char *pif = strstr(buffer, cad);
+    if (pif != NULL) {
+        networkAvailable = 1;
+
+        // jump to the received bytes field
+        ni = pif + strlen(cad);
+        while (*ni && ((*ni == ' ') || (*ni == '\t'))) ni++;
+        for (nf = ni; *nf && (*nf != ' ') && (*nf != '\t'); nf++);
+        *nf++ = 0;
+
+        // get the received bytes
+        recv_bytes = atoll(ni);
+
+        // jump to the sent bytes field
+                int skip;
+        for (skip = 0; skip < 8; skip++) {
+            ni = nf;
+            while (*ni && ((*ni == ' ') || (*ni == '\t'))) ni++;
+            for (nf = ni; *nf && (*nf != ' ') && (*nf != '\t'); nf++);
+            if (!*nf) break;
+            *nf++ = 0;
+        }
+
+        // get the sent bytes
+        sent_bytes = atoll(ni);
+    }
+
+    //
+    // generate the result
+    strcpy(buffer, "");
+
+    int hasNet = networkAvailable && (prev_nanoseconds >= 0) && 
+                (recv_bytes >= prev_recv_bytes) && (sent_bytes >= prev_sent_bytes);
+
+    if (!networkAvailable) {
+        sprintf(cad, "  %s is down", interface);
+        strcat(buffer, cad);
+    }
+    else if (!hasNet) {
+        strcat(buffer, "DOWN:     ? kbps, UP:      ? kbps");
+    }
+    else {
+        long long elapsed = nanoseconds - prev_nanoseconds;
+        if (elapsed < 1) elapsed = 1;
+        double seconds = elapsed / 1000000000.0;
+        long long sent = sent_bytes - prev_sent_bytes;
+        long long received = recv_bytes - prev_recv_bytes;
+                // adding 999 ensures "1" for any rate above 0
+        long inbps = (long) (8 * received / seconds + 999); 
+        long outbps = (long) (8 * sent / seconds + 999);
+        if (inbps < 1000000)
+            sprintf(cad, "DOWN: %6ld kbps, ", inbps/1000);
+        else
+            sprintf(cad, "DOWN: %6.3f Mbps, ", inbps/1000000.0);
+        strcat(buffer, cad);
+
+        if (outbps < 1000000)
+            sprintf(cad, "UP: %6ld kbps", outbps/1000);
+        else
+            sprintf(cad, "UP: %6.3f Mbps", outbps/1000000.0);
+        strcat(buffer, cad);
+        
+    }
+
+    printf(buffer);
+
+    /* Save values for next iteration */
+    prev_recv_bytes = recv_bytes;
+    prev_sent_bytes = sent_bytes;
+    prev_nanoseconds = nanoseconds;
+
+    return;
+#endif
+#endif
+}
 
 static int get_wireless_info(const char *interface, wireless_info_t *info) {
         memset(info, 0, sizeof(wireless_info_t));
@@ -401,6 +505,12 @@ void print_wireless_info(yajl_gen json_gen, char *buffer, const char *interface,
                         outwalk += sprintf(outwalk, "%s", br_buffer);
                         walk += strlen("bitrate");
                 }
+#ifdef USE_PROC_NET_DEV
+                if (BEGINS_WITH(walk+1, "speed")) {
+                        print_iw_speed(interface);
+                        walk += strlen("speed");
+                }
+#endif
 #endif
         }
 

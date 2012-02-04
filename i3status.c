@@ -208,7 +208,7 @@ int main(int argc, char *argv[]) {
         };
 
         cfg_opt_t wireless_opts[] = {
-                CFG_STR("format_up", "W: (%quality at %essid, %bitrate) %ip", CFGF_NONE),
+                CFG_STR("format_up", "W: (%quality at %essid, %bitrate, %speed) %ip", CFGF_NONE),
                 CFG_STR("format_down", "W: down", CFGF_NONE),
                 CFG_CUSTOM_COLOR_OPTS,
                 CFG_END()

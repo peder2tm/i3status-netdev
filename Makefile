@@ -15,9 +15,11 @@ CFLAGS+=-std=gnu99
 CFLAGS+=-pedantic
 CPPFLAGS+=-DSYSCONFDIR=\"$(SYSCONFDIR)\"
 CPPFLAGS+=-DVERSION=\"${GIT_VERSION}\"
+CPPFLAGS+=-DUSE_PROC_NET_DEV
 CFLAGS+=-Iinclude
 LIBS+=-lconfuse
 LIBS+=-lyajl
+LIBS+=-lrt
 
 VERSION:=$(shell git describe --tags --abbrev=0)
 GIT_VERSION:="$(shell git describe --tags --always) ($(shell git log --pretty=format:%cd --date=short -n1))"
