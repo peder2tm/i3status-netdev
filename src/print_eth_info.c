@@ -47,10 +47,10 @@ static int print_eth_speed(char *outwalk, const char *interface) {
             
             // read network information
             int fd = open("/proc/net/dev", O_RDONLY);
-            if (fd < 0) return;
+            if (fd < 0) return 0;
             int bytes = read(fd, buffer, sizeof(buffer)-1);
             close(fd);
-            if (bytes < 0) return;
+            if (bytes < 0) return 0;
             buffer[bytes] = 0;
 
             struct timespec tp;
