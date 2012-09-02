@@ -76,17 +76,17 @@ typedef struct {
         int bitrate;
 } wireless_info_t;
 
-static void print_iw_speed(const char *interface) {
+static int print_iw_speed(char *outwalk, const char *interface) {
 #ifdef LINUX
 #ifdef USE_PROC_NET_DEV
     char buffer[4096], cad[256], *ni, *nf;
     
     // read network information
     int fd = open("/proc/net/dev", O_RDONLY);
-    if (fd < 0) return;
+    if (fd < 0) return 0;
     int bytes = read(fd, buffer, sizeof(buffer)-1);
     close(fd);
-    if (bytes < 0) return;
+    if (bytes < 0) return 0;
     buffer[bytes] = 0;
 
     struct timespec tp;
@@ -163,14 +163,12 @@ static void print_iw_speed(const char *interface) {
         
     }
 
-    printf(buffer);
-
     /* Save values for next iteration */
     prev_recv_bytes = recv_bytes;
     prev_sent_bytes = sent_bytes;
     prev_nanoseconds = nanoseconds;
 
-    return;
+    return sprintf(outwalk, buffer);
 #endif
 #endif
 }
@@ -515,7 +513,7 @@ void print_wireless_info(yajl_gen json_gen, char *buffer, const char *interface,
                 }
 #ifdef USE_PROC_NET_DEV
                 if (BEGINS_WITH(walk+1, "speed")) {
-                        print_iw_speed(interface);
+                        outwalk += print_iw_speed(outwalk, interface);
                         walk += strlen("speed");
                 }
 #endif
