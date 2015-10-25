@@ -1,33 +1,40 @@
+// vim:ts=4:sw=4:expandtab
 #include <stdio.h>
 #include <string.h>
 #include <yajl/yajl_gen.h>
 #include <yajl/yajl_version.h>
 #include "i3status.h"
 
-void print_run_watch(yajl_gen json_gen, char *buffer, const char *title, const char *pidfile, const char *format) {
-	bool running = process_runs(pidfile);
-	const char *walk;
-	char *outwalk = buffer;
+void print_run_watch(yajl_gen json_gen, char *buffer, const char *title, const char *pidfile, const char *format, const char *format_down) {
+    bool running = process_runs(pidfile);
+    const char *walk;
+    char *outwalk = buffer;
 
-	INSTANCE(pidfile);
+    if (running || format_down == NULL) {
+        walk = format;
+    } else {
+        walk = format_down;
+    }
 
-	START_COLOR((running ? "color_good" : "color_bad"));
+    INSTANCE(pidfile);
 
-        for (walk = format; *walk != '\0'; walk++) {
-                if (*walk != '%') {
-			*(outwalk++) = *walk;
-                        continue;
-                }
+    START_COLOR((running ? "color_good" : "color_bad"));
 
-                if (strncmp(walk+1, "title", strlen("title")) == 0) {
-			outwalk += sprintf(outwalk, "%s", title);
-                        walk += strlen("title");
-                } else if (strncmp(walk+1, "status", strlen("status")) == 0) {
-			outwalk += sprintf(outwalk, "%s", (running ? "yes" : "no"));
-                        walk += strlen("status");
-                }
+    for (; *walk != '\0'; walk++) {
+        if (*walk != '%') {
+            *(outwalk++) = *walk;
+            continue;
         }
 
-	END_COLOR;
-	OUTPUT_FULL_TEXT(buffer);
+        if (BEGINS_WITH(walk + 1, "title")) {
+            outwalk += sprintf(outwalk, "%s", title);
+            walk += strlen("title");
+        } else if (BEGINS_WITH(walk + 1, "status")) {
+            outwalk += sprintf(outwalk, "%s", (running ? "yes" : "no"));
+            walk += strlen("status");
+        }
+    }
+
+    END_COLOR;
+    OUTPUT_FULL_TEXT(buffer);
 }

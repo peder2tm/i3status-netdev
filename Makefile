@@ -1,6 +1,9 @@
 ifndef PREFIX
   PREFIX=/usr
 endif
+ifndef MANPREFIX
+  MANPREFIX=$(PREFIX)
+endif
 ifndef SYSCONFDIR
   ifeq ($(PREFIX),/usr)
     SYSCONFDIR=/etc
@@ -20,6 +23,8 @@ CFLAGS+=-Iinclude
 LIBS+=-lconfuse
 LIBS+=-lyajl
 LIBS+=-lrt
+LIBS+=-lpulse
+LIBS+=-lm
 
 VERSION:=$(shell git describe --tags --abbrev=0)
 GIT_VERSION:="$(shell git describe --tags --always) ($(shell git log --pretty=format:%cd --date=short -n1))"
@@ -28,7 +33,8 @@ OS:=$(shell uname)
 ifeq ($(OS),Linux)
 CPPFLAGS+=-DLINUX
 CPPFLAGS+=-D_GNU_SOURCE
-LIBS+=-liw
+CFLAGS += $(shell pkg-config --cflags libnl-genl-3.0)
+LIBS += $(shell pkg-config --libs libnl-genl-3.0)
 LIBS+=-lasound
 endif
 
@@ -36,23 +42,20 @@ ifeq ($(OS),GNU/kFreeBSD)
 LIBS+=-lbsd
 endif
 
-ifeq ($(OS),OpenBSD)
+ifneq (, $(filter $(OS), DragonFly FreeBSD OpenBSD))
 CFLAGS+=-I/usr/local/include/
 LDFLAGS+=-L/usr/local/lib/
-LIBS+=-lossaudio
 endif
 
+ifeq ($(OS),NetBSD)
+LIBS+=-lprop
+endif
 
 # This probably applies for any pkgsrc based system
 ifneq (, $(filter $(OS), NetBSD DragonFly))
 CFLAGS+=-I/usr/pkg/include/
 LDFLAGS+=-L/usr/pkg/lib/
 endif
-
-ifeq ($(OS), NetBSD)
-LIBS+= -lprop
-endif
-
 
 V ?= 0
 ifeq ($(V),0)
@@ -68,6 +71,11 @@ CFLAGS += -idirafter yajl-fallback
 
 OBJS:=$(wildcard src/*.c *.c)
 OBJS:=$(OBJS:.c=.o)
+
+ifeq ($(OS),OpenBSD)
+OBJS:=$(filter-out src/pulse.o, $(OBJS))
+LIBS:=$(filter-out -lpulse, $(LIBS)) -lpthread
+endif
 
 src/%.o: src/%.c include/i3status.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
@@ -95,12 +103,12 @@ manpage:
 install:
 	install -m 755 -d $(DESTDIR)$(PREFIX)/bin
 	install -m 755 -d $(DESTDIR)$(SYSCONFDIR)
-	install -m 755 -d $(DESTDIR)$(PREFIX)/share/man/man1
+	install -m 755 -d $(DESTDIR)$(MANPREFIX)/share/man/man1
 	install -m 755 i3status $(DESTDIR)$(PREFIX)/bin/i3status
 	# Allow network configuration for getting the link speed
 	(which setcap && setcap cap_net_admin=ep $(DESTDIR)$(PREFIX)/bin/i3status) || true
 	install -m 644 i3status.conf $(DESTDIR)$(SYSCONFDIR)/i3status.conf
-	install -m 644 man/i3status.1 $(DESTDIR)$(PREFIX)/share/man/man1
+	install -m 644 man/i3status.1 $(DESTDIR)$(MANPREFIX)/share/man/man1
 
 release:
 	[ -f i3status-${VERSION} ] || rm -rf i3status-${VERSION}
