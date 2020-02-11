@@ -1,16 +1,17 @@
 // vim:ts=4:sw=4:expandtab
 #include <limits.h>
+#include <config.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <yajl/yajl_gen.h>
 #include <yajl/yajl_version.h>
+#include <sys/socket.h>
 
-#ifdef LINUX
+#ifdef __linux__
 #include <iwlib.h>
-    #if defined(USE_PROC_NET_DEV)
-        static long long prev_recv_bytes, prev_sent_bytes, 
-        prev_nanoseconds = -1;
-    #endif
+static long long prev_recv_bytes, prev_sent_bytes, 
+prev_nanoseconds = -1;
 #ifndef __FreeBSD__
 #include <errno.h>
 #include <net/if.h>
@@ -23,10 +24,13 @@
 #endif
 #endif
 
+#ifdef __APPLE__
+#define IW_ESSID_MAX_SIZE 32
+#endif
+
 #ifdef __FreeBSD__
 #include <sys/param.h>
 #include <sys/ioctl.h>
-#include <sys/socket.h>
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <net/if_media.h>
@@ -39,8 +43,8 @@
 #ifdef __DragonFly__
 #include <sys/param.h>
 #include <sys/ioctl.h>
-#include <sys/socket.h>
 #include <ifaddrs.h>
+#include <stdlib.h>
 #include <net/if.h>
 #include <net/if_media.h>
 #include <netproto/802_11/ieee80211.h>
@@ -51,13 +55,21 @@
 
 #ifdef __OpenBSD__
 #include <sys/ioctl.h>
-#include <sys/socket.h>
 #include <net/if.h>
+#include <sys/select.h>
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
 #include <net80211/ieee80211.h>
 #include <net80211/ieee80211_ioctl.h>
+#define IW_ESSID_MAX_SIZE IEEE80211_NWID_LEN
+#endif
+
+#ifdef __NetBSD__
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <net80211/ieee80211.h>
+#define IW_ESSID_MAX_SIZE IEEE80211_NWID_LEN
 #endif
 
 #include "i3status.h"
@@ -72,8 +84,10 @@
 
 typedef struct {
     int flags;
+#ifdef IW_ESSID_MAX_SIZE
     char essid[IW_ESSID_MAX_SIZE + 1];
-#ifdef LINUX
+#endif
+#ifdef __linux__
     uint8_t bssid[ETH_ALEN];
 #endif
     int quality;
@@ -88,8 +102,7 @@ typedef struct {
 } wireless_info_t;
 
 static int print_iw_speed(char *outwalk, const char *interface) {
-#ifdef LINUX
-#ifdef USE_PROC_NET_DEV
+#ifdef __linux__
     char buffer[4096], cad[256], *ni, *nf;
     
     // read network information
@@ -181,10 +194,9 @@ static int print_iw_speed(char *outwalk, const char *interface) {
 
     return sprintf(outwalk, buffer);
 #endif
-#endif
 }
 
-#ifdef LINUX
+#ifdef __linux__
 // Like iw_print_bitrate, but without the dependency on libiw.
 static void print_bitrate(char *buffer, int buflen, int bitrate) {
     const int kilo = 1e3;
@@ -278,6 +290,16 @@ static int gwi_sta_cb(struct nl_msg *msg, void *data) {
     // used to specify bit/s, so we convert to use the same code path.
     info->bitrate = (int)nla_get_u16(rinfo[NL80211_RATE_INFO_BITRATE]) * 100 * 1000;
 
+    if (sinfo[NL80211_STA_INFO_SIGNAL] != NULL) {
+        info->flags |= WIRELESS_INFO_FLAG_HAS_SIGNAL;
+        info->signal_level = (int8_t)nla_get_u8(sinfo[NL80211_STA_INFO_SIGNAL]);
+
+        info->flags |= WIRELESS_INFO_FLAG_HAS_QUALITY;
+        info->quality = nl80211_xbm_to_percent(info->signal_level, 1);
+        info->quality_max = 100;
+        info->quality_average = 50;
+    }
+
     return NL_SKIP;
 }
 
@@ -364,7 +386,7 @@ static int gwi_scan_cb(struct nl_msg *msg, void *data) {
 static int get_wireless_info(const char *interface, wireless_info_t *info) {
     memset(info, 0, sizeof(wireless_info_t));
 
-#ifdef LINUX
+#ifdef __linux__
     struct nl_sock *sk = nl_socket_alloc();
     if (genl_connect(sk) != 0)
         goto error1;
@@ -524,7 +546,7 @@ error1:
         else
             len = IEEE80211_NWID_LEN + 1;
 
-        strncpy(&info->essid[0], nwid.i_nwid, len);
+        strncpy(&info->essid[0], (char *)nwid.i_nwid, len);
         info->essid[IW_ESSID_MAX_SIZE] = '\0';
         info->flags |= WIRELESS_INFO_FLAG_HAS_ESSID;
     }
@@ -555,96 +577,131 @@ error1:
     return 0;
 }
 
-void print_wireless_info(yajl_gen json_gen, char *buffer, const char *interface, const char *format_up, const char *format_down) {
+/* Table summarizing what is the decision to prefer IPv4 or IPv6
+ * based their values.
+ *
+ * | ipv4_address | ipv6_address | Chosen IP | Color             |
+ * |--------------|--------------|-----------|-------------------|
+ * | NULL         | NULL         | None      | bad (red)         |
+ * | NULL         | no IP        | IPv6      | degraded (orange) |
+ * | NULL         | ::1/128      | IPv6      | ok (green)        |
+ * | no IP        | NULL         | IPv4      | degraded          |
+ * | no IP        | no IP        | IPv4      | degraded          |
+ * | no IP        | ::1/128      | IPv6      | ok                |
+ * | 127.0.0.1    | NULL         | IPv4      | ok                |
+ * | 127.0.0.1    | no IP        | IPv4      | ok                |
+ * | 127.0.0.1    | ::1/128      | IPv4      | ok                |
+ */
+void print_wireless_info(yajl_gen json_gen, char *buffer, const char *interface, const char *format_up, const char *format_down, const char *format_quality) {
     const char *walk;
     char *outwalk = buffer;
     wireless_info_t info;
 
     INSTANCE(interface);
 
-    const char *ip_address = get_ip_addr(interface);
-    if (ip_address == NULL) {
-        START_COLOR("color_bad");
-        outwalk += sprintf(outwalk, "%s", format_down);
-        goto out;
+    char *ipv4_address = sstrdup(get_ip_addr(interface, AF_INET));
+    char *ipv6_address = sstrdup(get_ip_addr(interface, AF_INET6));
+
+    /*
+     * Removing '%' and following characters from IPv6 since the interface identifier is redundant,
+     * as the output already includes the interface name.
+    */
+    if (ipv6_address != NULL) {
+        char *prct_ptr = strstr(ipv6_address, "%");
+        if (prct_ptr != NULL) {
+            *prct_ptr = '\0';
+        }
     }
 
-    if (get_wireless_info(interface, &info)) {
+    bool prefer_ipv4 = true;
+    if (ipv4_address == NULL) {
+        if (ipv6_address == NULL) {
+            START_COLOR("color_bad");
+            outwalk += sprintf(outwalk, "%s", format_down);
+            goto out;
+        } else {
+            prefer_ipv4 = false;
+        }
+    } else if (BEGINS_WITH(ipv4_address, "no IP") && ipv6_address != NULL && !BEGINS_WITH(ipv6_address, "no IP")) {
+        prefer_ipv4 = false;
+    }
+
+    const char *ip_address = (prefer_ipv4) ? ipv4_address : ipv6_address;
+    if (!get_wireless_info(interface, &info)) {
+        walk = format_down;
+        START_COLOR("color_bad");
+    } else {
         walk = format_up;
         if (info.flags & WIRELESS_INFO_FLAG_HAS_QUALITY)
             START_COLOR((info.quality < info.quality_average ? "color_degraded" : "color_good"));
-        else
-            START_COLOR((BEGINS_WITH(ip_address, "no IP") ? "color_degraded" : "color_good"));
-    } else {
-        walk = format_down;
-        START_COLOR("color_bad");
+        else {
+            if (BEGINS_WITH(ip_address, "no IP")) {
+                START_COLOR("color_degraded");
+            } else {
+                START_COLOR("color_good");
+            }
+        }
     }
 
     for (; *walk != '\0'; walk++) {
         if (*walk != '%') {
             *(outwalk++) = *walk;
-            continue;
-        }
 
-        if (BEGINS_WITH(walk + 1, "quality")) {
+        } else if (BEGINS_WITH(walk + 1, "quality")) {
             if (info.flags & WIRELESS_INFO_FLAG_HAS_QUALITY) {
                 if (info.quality_max)
-                    outwalk += sprintf(outwalk, "%03d%s", PERCENT_VALUE(info.quality, info.quality_max), pct_mark);
+                    outwalk += sprintf(outwalk, format_quality, PERCENT_VALUE(info.quality, info.quality_max), pct_mark);
                 else
                     outwalk += sprintf(outwalk, "%d", info.quality);
             } else {
                 *(outwalk++) = '?';
             }
             walk += strlen("quality");
-        }
 
-        if (BEGINS_WITH(walk + 1, "signal")) {
+        } else if (BEGINS_WITH(walk + 1, "signal")) {
             if (info.flags & WIRELESS_INFO_FLAG_HAS_SIGNAL) {
                 if (info.signal_level_max)
-                    outwalk += sprintf(outwalk, "%03d%s", PERCENT_VALUE(info.signal_level, info.signal_level_max), pct_mark);
+                    outwalk += sprintf(outwalk, "%3d%s", PERCENT_VALUE(info.signal_level, info.signal_level_max), pct_mark);
                 else
                     outwalk += sprintf(outwalk, "%d dBm", info.signal_level);
             } else {
                 *(outwalk++) = '?';
             }
             walk += strlen("signal");
-        }
 
-        if (BEGINS_WITH(walk + 1, "noise")) {
+        } else if (BEGINS_WITH(walk + 1, "noise")) {
             if (info.flags & WIRELESS_INFO_FLAG_HAS_NOISE) {
                 if (info.noise_level_max)
-                    outwalk += sprintf(outwalk, "%03d%s", PERCENT_VALUE(info.noise_level, info.noise_level_max), pct_mark);
+                    outwalk += sprintf(outwalk, "%3d%s", PERCENT_VALUE(info.noise_level, info.noise_level_max), pct_mark);
                 else
                     outwalk += sprintf(outwalk, "%d dBm", info.noise_level);
             } else {
                 *(outwalk++) = '?';
             }
             walk += strlen("noise");
-        }
 
-        if (BEGINS_WITH(walk + 1, "essid")) {
+        } else if (BEGINS_WITH(walk + 1, "essid")) {
+#ifdef IW_ESSID_MAX_SIZE
             if (info.flags & WIRELESS_INFO_FLAG_HAS_ESSID)
-                outwalk += sprintf(outwalk, "%s", info.essid);
+                maybe_escape_markup(info.essid, &outwalk);
             else
+#endif
                 *(outwalk++) = '?';
             walk += strlen("essid");
-        }
 
-        if (BEGINS_WITH(walk + 1, "frequency")) {
+        } else if (BEGINS_WITH(walk + 1, "frequency")) {
             if (info.flags & WIRELESS_INFO_FLAG_HAS_FREQUENCY)
                 outwalk += sprintf(outwalk, "%1.1f GHz", info.frequency / 1e9);
             else
                 *(outwalk++) = '?';
             walk += strlen("frequency");
-        }
 
-        if (BEGINS_WITH(walk + 1, "ip")) {
+        } else if (BEGINS_WITH(walk + 1, "ip")) {
             outwalk += sprintf(outwalk, "%s", ip_address);
             walk += strlen("ip");
         }
-
-#ifdef LINUX
-        if (BEGINS_WITH(walk + 1, "bitrate")) {
+#ifdef __linux__
+        else if (BEGINS_WITH(walk + 1, "bitrate")) {
             char br_buffer[128];
 
             print_bitrate(br_buffer, sizeof(br_buffer), info.bitrate);
@@ -653,16 +710,19 @@ void print_wireless_info(yajl_gen json_gen, char *buffer, const char *interface,
             walk += strlen("bitrate");
         }
 
-#ifdef USE_PROC_NET_DEV
         if (BEGINS_WITH(walk+1, "speed")) {
             outwalk += print_iw_speed(outwalk, interface);
             walk += strlen("speed");
         }
 #endif
-#endif
+        else {
+            *(outwalk++) = '%';
+        }
     }
 
 out:
     END_COLOR;
+    free(ipv4_address);
+    free(ipv6_address);
     OUTPUT_FULL_TEXT(buffer);
 }

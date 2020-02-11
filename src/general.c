@@ -1,4 +1,5 @@
 // vim:ts=4:sw=4:expandtab
+#include <config.h>
 #include <sys/types.h>
 #include <string.h>
 #include <stdarg.h>
@@ -13,6 +14,9 @@
 /*
  * Reads size bytes into the destination buffer from filename.
  *
+ * On success, true is returned. Otherwise, false is returned and the content
+ * of destination is left untouched.
+ *
  */
 bool slurp(const char *filename, char *destination, int size) {
     int fd;
@@ -26,7 +30,7 @@ bool slurp(const char *filename, char *destination, int size) {
         destination[n] = '\0';
     (void)close(fd);
 
-    return true;
+    return n != -1;
 }
 
 /*
@@ -51,12 +55,10 @@ char *skip_character(char *input, char character, int amount) {
  *
  */
 void die(const char *fmt, ...) {
-    char buffer[512];
     va_list ap;
     va_start(ap, fmt);
-    (void)vsnprintf(buffer, sizeof(buffer), fmt, ap);
+    (void)vfprintf(stderr, fmt, ap);
     va_end(ap);
 
-    fprintf(stderr, "%s", buffer);
     exit(EXIT_FAILURE);
 }

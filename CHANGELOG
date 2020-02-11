@@ -1,3 +1,116 @@
+2019-06-30 i3status 2.13
+
+ • add memory module
+ • add read_file module
+ • drop CAP_NET_ADMIN (not needed on Linux ≥ 2.6.37)
+ • switch to autotools 
+ • battery: hide seconds by default
+ • wireless: add format_quality
+ • doc: clarify min_width not being supported with dzen2/xmobar
+ • battery: read multiple batteries on DragonFlyBSD
+ • make: don’t use pulseaudio on DragonFlyBSD
+ • wireless: detect interface type on DragonFlyBSD
+ • cpu usage: fix: correctly print usage for cpu 10
+ • cpu usage: fix: correctly print for invalid %cpu placeholder
+ • cpu usage: support non-consecutive CPUs
+ • time: add only_when_tz_different option
+ • ethernet: add %interface
+ • ethernet: fix speed display for 100 Gbit/s cards
+ • battery: handle POWER_SUPPLY_STATUS=Not charging
+ • volume: provide more natural volume percentage with ALSA
+ • volume: fix ALSA capture device monitoring
+ • volume: implement %devicename for PulseAudio and ALSA
+ • config: re-arrange disk after network interfaces
+ • fix: include sys/socket.h on macOS
+ • fix: strip network interface labels
+ • fix glob(3) error handling
+ • various testsuite improvements
+ • switch to clang-format-3.8
+ 
+2018-05-11 i3status 2.12
+
+ • fix NULL value on OpenBSD when there is no acpitz0
+ • show IP address when address has a label
+ • man: explicitly use format_up/format_down in ethernet, wireless conf
+ • man: remove SLOC comment
+ • treat zero battery capacity as "not available"
+ • add IPv6 address when IPv4 isn't available
+ • call tzset at each time print to pick up time zone changes
+ • doc: fixed minor typos
+ • be more cautious about handling invalid battery measurements.
+ • Makefile: make PKG_CONFIG overridable
+ • fix CPU unit tests
+ • use local timezone for battery %emptytime
+ • fix memory leak/use BEGINS_WITH macro
+ • _first_: add check for virtual ethernet devices
+ • add battery capacity parsing
+ • multiple CPU support for cpu_usage
+ • remove useless checks (we use char, not unsigned char) to fix compilation warnings
+ • disk: sanitize trailing slashes
+ • plug an fd leak in the OpenBSD-specific code for
+ • suppress printing :00 seconds of remaining battery lifetime, as apm(4)'s
+   estimate only has a granularity of minutes.
+ • fix the deciKelvin to Celsius conversion on FreeBSD
+ • make first_eth_interface() work on OpenBSD
+ • include sys/select.h on OpenBSD
+
+2017-01-21 i3status 2.11
+
+ • re-add forgotten wakeup call from SIGUSR1 handler
+ • disk_info: bugfix: check format_not_mounted is not NULL before using it
+ • revert back to using nanosleep
+ • man: give more descriptive symbols to battery format
+ • battery: removes the 'remaining' time when the battery is full
+ • add separator and separator_block_width as universal module options
+ • man: fix link to contrib
+ • cpu_temperature: add glob check
+ • battery: add status_unk
+ • reconnect to PluseAudio when connection is lost
+ • wireless: add ifdef to compile on macOS
+ • order default configuration paths the same as in i3
+ • add version files for release tarball
+ • man: make tztime example config match the context
+ • cpu_usage: add color thresholds
+ • battery: support multiple batteries
+ • disk: use empty string for not mounted disks
+ • default config: remove DHCP, VPN
+ • wireless: fix FTBFS on hurd and kFreeBSD
+ • parse uevent file to detect network device type
+ • allow pulse device to be specified by name
+ • battery: find batteries using glob
+ • tztime: support locales
+ • wireless: use blank padding for quality
+ • add unit tests
+ • fix compilation with -fno-common
+
+2016-01-01 i3status 2.10
+
+ • man: fix typo in battery example
+ • Pass the "instance" JSON property key for tztime blocks
+ • Fix build (and build warnings) on FreeBSD
+ • Fix build on OpenBSD
+ • path_exists, run_watch: add format_down
+ • volume: add PulseAudio support. This significantly reduces battery
+   consumption on systems that use PulseAudio, which is the default on any
+   modern Linux desktop.
+ • wireless/OpenBSD: use the maximum rssi, not the scaled percentage for the
+   signal level.
+ • make: Add support for differing PREFIX and MANPREFIX.
+ • battery: make output HH:MM across all platforms.
+ • battery: clamp the percentage at 100% when last_full_capacity is enabled.
+ • Use format_not_mounted if the directory for a disk_info block does not
+   exist.
+ • disk_info/OS X: Fix build.
+ • volume/OpenBSD: use SndIO.
+ • eth, wireless: Use "color_degraded" when interface has no IP.
+ • eth, wireless/FreeBSD: Fix for recent FreeBSD versions.
+ • wireless/Linux: switch from libiw to libnl. This allows you to run i3status
+   on kernels which don’t have the wext compatibility module enabled.
+ • battery/FreeBSD: properly detect charging status
+ • eth: first_eth_interface: ignore MAC addresses, look for IPv4/IPv6 addresses
+ • Implement support for Pango markup.
+ • format detection: recognise swaybar
+
 2015-03-22 i3status 2.9
 
  • meta: i3status is now on GitHub and uses clang-format
