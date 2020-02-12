@@ -710,7 +710,7 @@ void print_wireless_info(yajl_gen json_gen, char *buffer, const char *interface,
             walk += strlen("bitrate");
         }
 
-        if (BEGINS_WITH(walk+1, "speed")) {
+        else if (BEGINS_WITH(walk + 1, "speed")) {
             outwalk += print_iw_speed(outwalk, interface);
             walk += strlen("speed");
         }
